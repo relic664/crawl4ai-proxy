@@ -140,3 +140,37 @@ func TestInvalidJson(t *testing.T) {
 
 	expectErrorWithName(t, response, "invalid json")
 }
+
+func TestDecodeResults(t *testing.T) {
+	withResults := map[string]any{
+		"results": []any{
+			map[string]any{"url": "https://example.com"},
+		},
+	}
+	results := decodeResults(withResults)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	withArray := []any{
+		map[string]any{"url": "https://example.com"},
+	}
+	results = decodeResults(withArray)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result from top-level array, got %d", len(results))
+	}
+}
+
+func TestExtractMarkdownPrefersFilteredMarkdown(t *testing.T) {
+	result := map[string]any{
+		"markdown": map[string]any{
+			"raw_markdown": "raw markdown",
+			"fit_markdown": "fit markdown",
+		},
+	}
+
+	markdown := extractMarkdown(result)
+	if markdown != "fit markdown" {
+		t.Fatalf("unexpected markdown value: %q", markdown)
+	}
+}

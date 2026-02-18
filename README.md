@@ -11,7 +11,7 @@ services:
         image: ghcr.io/lennyerik/crawl4ai-proxy:latest
         environment:
             - LISTEN_PORT=8000
-            - CRAWL4AI_ENDPOINT=http://crawl4ai:11235/crawl
+            - CRAWL4AI_ENDPOINT=http://crawl4ai:11235/md
         networks:
             - openwebui
 
@@ -42,5 +42,7 @@ networks:
 Run `docker compose up -d`, visit `localhost:8080` in a browser, navigate to `Admin Panel->Web Search` and under the "Loader" section, set
 
     Web Loader Engine: external
-    External Web Loader URL: http://crawl4ai-proxy:8000/crawl
+    External Web Loader URL: http://crawl4ai-proxy:8000/md
     External Web Loader API Key: * (doesn't matter, but is a required field)
+
+The proxy still serves both `/crawl` and `/md` routes for compatibility.

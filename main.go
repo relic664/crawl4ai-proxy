@@ -8,12 +8,13 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 )
 
 var (
 	LISTEN_IP         string = ""
 	LISTEN_PORT       int    = 8000
-	CRAWL4AI_ENDPOINT        = "http://crawl4ai:11235/crawl"
+	CRAWL4AI_ENDPOINT        = "http://crawl4ai:11235/md"
 )
 
 func ReadEnvironment() {
@@ -50,17 +51,6 @@ type ErrorResponse struct {
 	Detail    string `json:"detail"`
 }
 
-// For the crawl4ai-facing endpoint
-type CrawlResponse struct {
-	Results []struct {
-		Url      string `json:"url"`
-		Markdown struct {
-			RawMarkdown string `json:"raw_markdown"`
-		} `json:"markdown"`
-		Metadata map[string]string `json:"metadata"`
-	} `json:"results"`
-}
-
 func errorResponseFromError(name string, err error) ErrorResponse {
 	return ErrorResponse{
 		ErrorName: name,
@@ -76,6 +66,102 @@ func jsonEncodeInfallible(object any) []byte {
 	return encoded
 }
 
+func decodeResults(payload any) []map[string]any {
+	convertList := func(rawList any) ([]map[string]any, bool) {
+		list, isList := rawList.([]any)
+		if !isList {
+			return nil, false
+		}
+
+		ret := []map[string]any{}
+		for _, item := range list {
+			itemMap, isMap := item.(map[string]any)
+			if isMap {
+				ret = append(ret, itemMap)
+			}
+		}
+
+		return ret, true
+	}
+
+	switch data := payload.(type) {
+	case []any:
+		results, ok := convertList(data)
+		if ok {
+			return results
+		}
+	case map[string]any:
+		results, hasResults := convertList(data["results"])
+		if hasResults {
+			return results
+		}
+
+		results, hasData := convertList(data["data"])
+		if hasData {
+			return results
+		}
+
+		return []map[string]any{data}
+	}
+
+	return nil
+}
+
+func stringMapFromAny(data any) map[string]string {
+	ret := map[string]string{}
+
+	dataMap, isMap := data.(map[string]any)
+	if isMap {
+		for key, value := range dataMap {
+			valueString, isString := value.(string)
+			if isString && valueString != "" {
+				ret[key] = valueString
+			}
+		}
+	}
+
+	return ret
+}
+
+func extractMarkdown(result map[string]any) string {
+	// Prefer filtered/fit markdown, but gracefully fall back to raw markdown/content.
+	for _, key := range []string{"filtered_markdown", "fit_markdown", "markdown", "raw_markdown", "content", "page_content"} {
+		value, exists := result[key]
+		if !exists {
+			continue
+		}
+
+		valueString, isString := value.(string)
+		if isString && valueString != "" {
+			return valueString
+		}
+	}
+
+	markdownField, markdownExists := result["markdown"]
+	if !markdownExists {
+		return ""
+	}
+
+	markdownMap, isMap := markdownField.(map[string]any)
+	if !isMap {
+		return ""
+	}
+
+	for _, key := range []string{"filtered_markdown", "fit_markdown", "markdown", "raw_markdown"} {
+		value, exists := markdownMap[key]
+		if !exists {
+			continue
+		}
+
+		valueString, isString := value.(string)
+		if isString && valueString != "" {
+			return valueString
+		}
+	}
+
+	return ""
+}
+
 func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Content-Type", "application/json")
 
@@ -87,7 +173,7 @@ func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	if request.Header.Get("Content-Type") != "application/json" {
+	if !strings.HasPrefix(request.Header.Get("Content-Type"), "application/json") {
 		response.WriteHeader(400)
 		resp := ErrorResponse{ErrorName: "content type must be application/json"}
 		response.Write(jsonEncodeInfallible(resp))
@@ -111,6 +197,7 @@ func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		panic(err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 
 	crawlResponse, err := http.DefaultClient.Do(req)
 	if err != nil || crawlResponse.StatusCode != 200 {
@@ -120,8 +207,9 @@ func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 		log.Printf("502 bad gateway :: %s\n", request.RemoteAddr)
 		return
 	}
+	defer crawlResponse.Body.Close()
 
-	var crawlData CrawlResponse
+	var crawlData any
 	err = json.NewDecoder(crawlResponse.Body).Decode(&crawlData)
 	if err != nil {
 		response.WriteHeader(502)
@@ -131,23 +219,27 @@ func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
+	crawlResults := decodeResults(crawlData)
+	if crawlResults == nil {
+		response.WriteHeader(502)
+		resp := ErrorResponse{ErrorName: "bad gateway", Detail: "invalid json structure received from crawl api"}
+		response.Write(jsonEncodeInfallible(resp))
+		log.Printf("502 bad gateway - invalid json structure from crawl api :: %s\n", request.RemoteAddr)
+		return
+	}
+
 	ret := SuccessResponse{}
-	for _, result := range crawlData.Results {
-		if result.Metadata == nil {
-			result.Metadata = map[string]string{}
-		}
+	for _, result := range crawlResults {
+		metadata := stringMapFromAny(result["metadata"])
 
-		for key, value := range result.Metadata {
-			if value == "" {
-				delete(result.Metadata, key)
-			}
+		url, hasUrl := result["url"].(string)
+		if hasUrl && url != "" {
+			metadata["source"] = url
 		}
-
-		result.Metadata["source"] = result.Url
 
 		ret = append(ret, SuccessResponseItem{
-			PageContent: result.Markdown.RawMarkdown,
-			Metadata:    result.Metadata,
+			PageContent: extractMarkdown(result),
+			Metadata:    metadata,
 		})
 	}
 
@@ -160,6 +252,7 @@ func main() {
 	ReadEnvironment()
 
 	http.HandleFunc("/crawl", CrawlEndpoint)
+	http.HandleFunc("/md", CrawlEndpoint)
 
 	listenAddress := fmt.Sprintf("%s:%d", LISTEN_IP, LISTEN_PORT)
 	log.Printf("Listening on %s\n", listenAddress)
