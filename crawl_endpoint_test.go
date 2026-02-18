@@ -139,6 +139,20 @@ func TestInvalidJson(t *testing.T) {
 	}
 
 	expectErrorWithName(t, response, "invalid json")
+
+	request, err = http.NewRequest("POST", "/crawl", strings.NewReader("{}"))
+	if err != nil {
+		panic(err)
+	}
+	request.Header.Add("Content-Type", "application/json")
+	response = callEndpoint(request)
+
+	if response.StatusCode != 400 {
+		t.Errorf("Got status code %d", response.StatusCode)
+		return
+	}
+
+	expectErrorWithName(t, response, "invalid json")
 }
 
 func TestDecodeResults(t *testing.T) {
@@ -172,5 +186,28 @@ func TestExtractMarkdownPrefersFilteredMarkdown(t *testing.T) {
 	markdown := extractMarkdown(result)
 	if markdown != "fit markdown" {
 		t.Fatalf("unexpected markdown value: %q", markdown)
+	}
+}
+
+func TestNormalizeRequestUrls(t *testing.T) {
+	requestData := Request{
+		Url: "https://example.com/single",
+	}
+	urls := normalizeRequestUrls(requestData)
+	if len(urls) != 1 || urls[0] != "https://example.com/single" {
+		t.Fatalf("unexpected normalized urls for single url: %#v", urls)
+	}
+
+	requestData = Request{
+		Urls: []string{
+			"https://example.com/a",
+			"",
+			"https://example.com/b",
+		},
+		Url: "https://example.com/c",
+	}
+	urls = normalizeRequestUrls(requestData)
+	if len(urls) != 3 {
+		t.Fatalf("expected 3 urls, got %#v", urls)
 	}
 }

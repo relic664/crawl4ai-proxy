@@ -38,6 +38,7 @@ func ReadEnvironment() {
 // For the openwebui-facing endpoint
 type Request struct {
 	Urls []string `json:"urls"`
+	Url  string   `json:"url,omitempty"`
 }
 
 type SuccessResponseItem struct {
@@ -162,6 +163,21 @@ func extractMarkdown(result map[string]any) string {
 	return ""
 }
 
+func normalizeRequestUrls(requestData Request) []string {
+	ret := []string{}
+	for _, url := range requestData.Urls {
+		if url != "" {
+			ret = append(ret, url)
+		}
+	}
+
+	if requestData.Url != "" {
+		ret = append(ret, requestData.Url)
+	}
+
+	return ret
+}
+
 func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Content-Type", "application/json")
 
@@ -191,9 +207,20 @@ func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	log.Printf("Request to crawl %s from %s\n", requestData.Urls, request.RemoteAddr)
+	requestUrls := normalizeRequestUrls(requestData)
+	if len(requestUrls) == 0 {
+		response.WriteHeader(400)
+		resp := ErrorResponse{ErrorName: "invalid json", Detail: "request must include `url` or `urls`"}
+		response.Write(jsonEncodeInfallible(resp))
+		log.Printf("400 invalid json :: %s\n", request.RemoteAddr)
+		return
+	}
 
-	req, err := http.NewRequest("POST", CRAWL4AI_ENDPOINT, bytes.NewReader(jsonEncodeInfallible(requestData)))
+	log.Printf("Request to crawl %s from %s\n", requestUrls, request.RemoteAddr)
+
+	crawlRequestData := Request{Urls: requestUrls}
+
+	req, err := http.NewRequest("POST", CRAWL4AI_ENDPOINT, bytes.NewReader(jsonEncodeInfallible(crawlRequestData)))
 	if err != nil {
 		panic(err)
 	}

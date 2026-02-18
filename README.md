@@ -46,3 +46,4 @@ Run `docker compose up -d`, visit `localhost:8080` in a browser, navigate to `Ad
     External Web Loader API Key: * (doesn't matter, but is a required field)
 
 The proxy still serves both `/crawl` and `/md` routes for compatibility.
+For request payload compatibility, it accepts both `{"url":"https://..."}` and `{"urls":["https://..."]}`.
