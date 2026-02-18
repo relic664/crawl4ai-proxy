@@ -211,3 +211,31 @@ func TestNormalizeRequestUrls(t *testing.T) {
 		t.Fatalf("expected 3 urls, got %#v", urls)
 	}
 }
+
+func TestCrawlRequestPayloadCandidates(t *testing.T) {
+	singleCandidates := crawlRequestPayloadCandidates([]string{"https://example.com/single"})
+	if len(singleCandidates) != 2 {
+		t.Fatalf("expected 2 payload candidates for single url, got %d", len(singleCandidates))
+	}
+
+	var singleAsMap map[string]any
+	if err := json.Unmarshal(singleCandidates[0], &singleAsMap); err != nil {
+		t.Fatal(err)
+	}
+	if _, hasURL := singleAsMap["url"]; !hasURL {
+		t.Fatalf("expected first single payload to include url field, got %#v", singleAsMap)
+	}
+
+	var singleAsUrlsMap map[string]any
+	if err := json.Unmarshal(singleCandidates[1], &singleAsUrlsMap); err != nil {
+		t.Fatal(err)
+	}
+	if _, hasUrls := singleAsUrlsMap["urls"]; !hasUrls {
+		t.Fatalf("expected second single payload to include urls field, got %#v", singleAsUrlsMap)
+	}
+
+	multiCandidates := crawlRequestPayloadCandidates([]string{"https://example.com/a", "https://example.com/b"})
+	if len(multiCandidates) != 1 {
+		t.Fatalf("expected 1 payload candidate for multi url, got %d", len(multiCandidates))
+	}
+}

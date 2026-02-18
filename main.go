@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -178,6 +179,87 @@ func normalizeRequestUrls(requestData Request) []string {
 	return ret
 }
 
+func crawlRequestPayloadCandidates(urls []string) [][]byte {
+	if len(urls) == 1 {
+		return [][]byte{
+			jsonEncodeInfallible(Request{Url: urls[0]}),
+			jsonEncodeInfallible(Request{Urls: urls}),
+		}
+	}
+
+	return [][]byte{
+		jsonEncodeInfallible(Request{Urls: urls}),
+	}
+}
+
+func previewResponseBody(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	const maxLen = 300
+	if len(text) > maxLen {
+		return text[:maxLen] + "..."
+	}
+	return text
+}
+
+type CrawlAPICallResult struct {
+	Data        any
+	StatusCode  int
+	BodyPreview string
+	Err         error
+}
+
+func callCrawlAPI(payload []byte) CrawlAPICallResult {
+	req, err := http.NewRequest("POST", CRAWL4AI_ENDPOINT, bytes.NewReader(payload))
+	if err != nil {
+		return CrawlAPICallResult{Err: err}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	crawlResponse, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return CrawlAPICallResult{Err: err}
+	}
+	defer crawlResponse.Body.Close()
+
+	body, err := io.ReadAll(crawlResponse.Body)
+	if err != nil {
+		return CrawlAPICallResult{Err: err}
+	}
+
+	if crawlResponse.StatusCode != 200 {
+		return CrawlAPICallResult{
+			StatusCode:  crawlResponse.StatusCode,
+			BodyPreview: previewResponseBody(body),
+		}
+	}
+
+	var crawlData any
+	err = json.Unmarshal(body, &crawlData)
+	if err != nil {
+		return CrawlAPICallResult{
+			StatusCode: crawlResponse.StatusCode,
+			Err:        fmt.Errorf("invalid json received from crawl api"),
+		}
+	}
+
+	return CrawlAPICallResult{
+		StatusCode: crawlResponse.StatusCode,
+		Data:       crawlData,
+	}
+}
+
+func callCrawlAPIWithFallback(urls []string) CrawlAPICallResult {
+	var lastResult CrawlAPICallResult
+	for _, payload := range crawlRequestPayloadCandidates(urls) {
+		result := callCrawlAPI(payload)
+		if result.Err == nil && result.StatusCode == 200 {
+			return result
+		}
+		lastResult = result
+	}
+	return lastResult
+}
+
 func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Content-Type", "application/json")
 
@@ -218,33 +300,34 @@ func CrawlEndpoint(response http.ResponseWriter, request *http.Request) {
 
 	log.Printf("Request to crawl %s from %s\n", requestUrls, request.RemoteAddr)
 
-	crawlRequestData := Request{Urls: requestUrls}
-
-	req, err := http.NewRequest("POST", CRAWL4AI_ENDPOINT, bytes.NewReader(jsonEncodeInfallible(crawlRequestData)))
-	if err != nil {
-		panic(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	crawlResponse, err := http.DefaultClient.Do(req)
-	if err != nil || crawlResponse.StatusCode != 200 {
+	crawlAPICallResult := callCrawlAPIWithFallback(requestUrls)
+	if crawlAPICallResult.Err != nil {
 		response.WriteHeader(502)
-		resp := ErrorResponse{ErrorName: "bad gateway"}
+		resp := ErrorResponse{ErrorName: "bad gateway", Detail: crawlAPICallResult.Err.Error()}
 		response.Write(jsonEncodeInfallible(resp))
-		log.Printf("502 bad gateway :: %s\n", request.RemoteAddr)
+		log.Printf("502 bad gateway - crawl api call failed: %v :: %s\n", crawlAPICallResult.Err, request.RemoteAddr)
 		return
 	}
-	defer crawlResponse.Body.Close()
 
-	var crawlData any
-	err = json.NewDecoder(crawlResponse.Body).Decode(&crawlData)
-	if err != nil {
+	if crawlAPICallResult.StatusCode != 200 {
+		errorDetail := fmt.Sprintf("crawl api returned status %d", crawlAPICallResult.StatusCode)
+		if crawlAPICallResult.BodyPreview != "" {
+			errorDetail += ": " + crawlAPICallResult.BodyPreview
+		}
+
 		response.WriteHeader(502)
-		resp := ErrorResponse{ErrorName: "bad gateway", Detail: "invalid json received from crawl api"}
+		resp := ErrorResponse{ErrorName: "bad gateway", Detail: errorDetail}
 		response.Write(jsonEncodeInfallible(resp))
-		log.Printf("502 bad gateway - invalid json from crawl api :: %s\n", request.RemoteAddr)
+		log.Printf(
+			"502 bad gateway - crawl api status=%d body=%q :: %s\n",
+			crawlAPICallResult.StatusCode,
+			crawlAPICallResult.BodyPreview,
+			request.RemoteAddr,
+		)
 		return
 	}
+
+	crawlData := crawlAPICallResult.Data
 
 	crawlResults := decodeResults(crawlData)
 	if crawlResults == nil {
