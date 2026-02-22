@@ -47,3 +47,17 @@ Run `docker compose up -d`, visit `localhost:8080` in a browser, navigate to `Ad
 
 The proxy still serves both `/crawl` and `/md` routes for compatibility.
 For request payload compatibility, it accepts both `{"url":"https://..."}` and `{"urls":["https://..."]}`.
+When forwarding requests to crawl4ai, it injects these defaults:
+
+```
+{
+  "browserConfig": {
+    "text_mode": true
+  },
+  "crawlerRunConfig": {
+    "remove_overlay_elements": true,
+    "magic": true,
+    "exclude_all_images": true
+  }
+}
+```

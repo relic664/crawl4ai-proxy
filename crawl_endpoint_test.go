@@ -213,6 +213,40 @@ func TestNormalizeRequestUrls(t *testing.T) {
 }
 
 func TestCrawlRequestPayloadCandidates(t *testing.T) {
+	expectDefaultConfigs := func(payload map[string]any) {
+		browserConfigValue, hasBrowserConfig := payload["browserConfig"]
+		if !hasBrowserConfig {
+			t.Fatalf("expected payload to include browserConfig, got %#v", payload)
+		}
+
+		browserConfig, isMap := browserConfigValue.(map[string]any)
+		if !isMap {
+			t.Fatalf("expected browserConfig to be an object, got %#v", browserConfigValue)
+		}
+
+		textMode, isBool := browserConfig["text_mode"].(bool)
+		if !isBool || !textMode {
+			t.Fatalf("expected browserConfig.text_mode=true, got %#v", browserConfig["text_mode"])
+		}
+
+		runConfigValue, hasRunConfig := payload["crawlerRunConfig"]
+		if !hasRunConfig {
+			t.Fatalf("expected payload to include crawlerRunConfig, got %#v", payload)
+		}
+
+		runConfig, isMap := runConfigValue.(map[string]any)
+		if !isMap {
+			t.Fatalf("expected crawlerRunConfig to be an object, got %#v", runConfigValue)
+		}
+
+		for _, key := range []string{"remove_overlay_elements", "magic", "exclude_all_images"} {
+			value, isBool := runConfig[key].(bool)
+			if !isBool || !value {
+				t.Fatalf("expected crawlerRunConfig.%s=true, got %#v", key, runConfig[key])
+			}
+		}
+	}
+
 	singleCandidates := crawlRequestPayloadCandidates([]string{"https://example.com/single"})
 	if len(singleCandidates) != 2 {
 		t.Fatalf("expected 2 payload candidates for single url, got %d", len(singleCandidates))
@@ -225,6 +259,7 @@ func TestCrawlRequestPayloadCandidates(t *testing.T) {
 	if _, hasURL := singleAsMap["url"]; !hasURL {
 		t.Fatalf("expected first single payload to include url field, got %#v", singleAsMap)
 	}
+	expectDefaultConfigs(singleAsMap)
 
 	var singleAsUrlsMap map[string]any
 	if err := json.Unmarshal(singleCandidates[1], &singleAsUrlsMap); err != nil {
@@ -233,9 +268,20 @@ func TestCrawlRequestPayloadCandidates(t *testing.T) {
 	if _, hasUrls := singleAsUrlsMap["urls"]; !hasUrls {
 		t.Fatalf("expected second single payload to include urls field, got %#v", singleAsUrlsMap)
 	}
+	expectDefaultConfigs(singleAsUrlsMap)
 
 	multiCandidates := crawlRequestPayloadCandidates([]string{"https://example.com/a", "https://example.com/b"})
 	if len(multiCandidates) != 1 {
 		t.Fatalf("expected 1 payload candidate for multi url, got %d", len(multiCandidates))
 	}
+
+	var multiAsMap map[string]any
+	if err := json.Unmarshal(multiCandidates[0], &multiAsMap); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, hasUrls := multiAsMap["urls"]; !hasUrls {
+		t.Fatalf("expected multi payload to include urls field, got %#v", multiAsMap)
+	}
+	expectDefaultConfigs(multiAsMap)
 }

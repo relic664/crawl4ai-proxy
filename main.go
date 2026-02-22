@@ -42,6 +42,33 @@ type Request struct {
 	Url  string   `json:"url,omitempty"`
 }
 
+type BrowserConfig struct {
+	TextMode bool `json:"text_mode"`
+}
+
+type CrawlerRunConfig struct {
+	RemoveOverlayElements bool `json:"remove_overlay_elements"`
+	Magic                 bool `json:"magic"`
+	ExcludeAllImages      bool `json:"exclude_all_images"`
+}
+
+type Crawl4AIRequest struct {
+	Urls             []string         `json:"urls,omitempty"`
+	Url              string           `json:"url,omitempty"`
+	BrowserConfig    BrowserConfig    `json:"browserConfig"`
+	CrawlerRunConfig CrawlerRunConfig `json:"crawlerRunConfig"`
+}
+
+var defaultBrowserConfig = BrowserConfig{
+	TextMode: true,
+}
+
+var defaultCrawlerRunConfig = CrawlerRunConfig{
+	RemoveOverlayElements: true,
+	Magic:                 true,
+	ExcludeAllImages:      true,
+}
+
 type SuccessResponseItem struct {
 	PageContent string            `json:"page_content"`
 	Metadata    map[string]string `json:"metadata"`
@@ -180,15 +207,31 @@ func normalizeRequestUrls(requestData Request) []string {
 }
 
 func crawlRequestPayloadCandidates(urls []string) [][]byte {
+	requestWithUrl := func(url string) []byte {
+		return jsonEncodeInfallible(Crawl4AIRequest{
+			Url:              url,
+			BrowserConfig:    defaultBrowserConfig,
+			CrawlerRunConfig: defaultCrawlerRunConfig,
+		})
+	}
+
+	requestWithUrls := func(urls []string) []byte {
+		return jsonEncodeInfallible(Crawl4AIRequest{
+			Urls:             urls,
+			BrowserConfig:    defaultBrowserConfig,
+			CrawlerRunConfig: defaultCrawlerRunConfig,
+		})
+	}
+
 	if len(urls) == 1 {
 		return [][]byte{
-			jsonEncodeInfallible(Request{Url: urls[0]}),
-			jsonEncodeInfallible(Request{Urls: urls}),
+			requestWithUrl(urls[0]),
+			requestWithUrls(urls),
 		}
 	}
 
 	return [][]byte{
-		jsonEncodeInfallible(Request{Urls: urls}),
+		requestWithUrls(urls),
 	}
 }
 
