@@ -263,7 +263,7 @@ func callCrawlAPI(payload []byte) CrawlAPICallResult {
 		return CrawlAPICallResult{Err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", CRAWL4AI_API_KEY)
+	req.Header.Set("Authorization", "Bearer "+CRAWL4AI_API_KEY)
 
 	crawlResponse, err := http.DefaultClient.Do(req)
 	if err != nil {
