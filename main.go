@@ -16,6 +16,7 @@ var (
 	LISTEN_IP         string = ""
 	LISTEN_PORT       int    = 8000
 	CRAWL4AI_ENDPOINT        = "http://crawl4ai:11235/md"
+	CRAWL4AI_API_KEY         = "None"
 )
 
 func ReadEnvironment() {
@@ -33,6 +34,11 @@ func ReadEnvironment() {
 	endpoint := os.Getenv("CRAWL4AI_ENDPOINT")
 	if endpoint != "" {
 		CRAWL4AI_ENDPOINT = endpoint
+	}
+
+	api_key := os.Getenv("CRAWL4AI_API_KEY")
+	if api_key != "" {
+		CRAWL4AI_API_KEY = api_key
 	}
 }
 
@@ -257,6 +263,7 @@ func callCrawlAPI(payload []byte) CrawlAPICallResult {
 		return CrawlAPICallResult{Err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", CRAWL4AI_API_KEY)
 
 	crawlResponse, err := http.DefaultClient.Do(req)
 	if err != nil {
